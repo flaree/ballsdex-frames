@@ -1,0 +1,256 @@
+from __future__ import annotations
+
+import logging
+import random
+import re
+import string
+from datetime import date
+from typing import TYPE_CHECKING, Any
+
+import discord
+from discord.ext import commands
+from PIL import Image, ImageOps
+
+if TYPE_CHECKING:
+    from ballsdex.core.bot import BallsDexBot
+
+log = logging.getLogger("ballsdex.packages.frames")
+
+FRAME_DATE_RE = re.compile(r"^\d{2}-\d{2}-\d{4}$")
+
+
+def get_active_frame(capacity_logic: Any) -> dict | None:
+    """Return today's frame entry from capacity_logic if one exists, else None."""
+    if not isinstance(capacity_logic, dict):
+        return None
+    key = date.today().strftime("%m-%d-%Y")
+    entry = capacity_logic.get(key)
+    if isinstance(entry, dict):
+        return entry
+    return None
+
+
+def _random_name() -> str:
+    source = string.ascii_uppercase + string.ascii_lowercase + string.ascii_letters
+    return "".join(random.choices(source, k=15))
+
+
+class FramesCog(commands.Cog):
+    def __init__(self, bot: "BallsDexBot"):
+        self.bot = bot
+        self._originals: dict[str, Any] = {}
+        self._patch()
+
+    def cog_unload(self) -> None:
+        import ballsdex.core.image_generator.image_gen as image_gen_module
+        import bd_models.models as bd_models_module
+        import ballsdex.core.utils.sorting as sorting_module
+        from ballsdex.packages.countryballs.countryball import BallSpawnView
+        from ballsdex.core.utils.menus.formatter import CountryballFormatter
+        from ballsdex.core.utils.enums import FilteringChoices
+        from bd_models.models import BallInstance
+
+        if "spawn" in self._originals:
+            BallSpawnView.spawn = self._originals["spawn"]  # type: ignore[method-assign]
+        if "draw_card" in self._originals:
+            image_gen_module.draw_card = self._originals["draw_card"]
+            bd_models_module.draw_card = self._originals["draw_card"]
+        if "format_page" in self._originals:
+            CountryballFormatter.format_page = self._originals["format_page"]  # type: ignore[method-assign]
+        if "filter_balls" in self._originals:
+            sorting_module.filter_balls = self._originals["filter_balls"]
+        if "balls_cog_filter_balls" in self._originals:
+            try:
+                import ballsdex.packages.balls.cog as balls_cog_module
+                balls_cog_module.filter_balls = self._originals["balls_cog_filter_balls"]  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        if "ball_instance_save" in self._originals:
+            BallInstance.save = self._originals["ball_instance_save"]  # type: ignore[method-assign]
+        if "ball_instance_acreate" in self._originals:
+            BallInstance.objects.acreate = self._originals["ball_instance_acreate"]  # type: ignore[assignment]
+
+        # Remove the injected enum member
+        if hasattr(FilteringChoices, "frame"):
+            FilteringChoices._member_map_.pop("frame", None)  # type: ignore[attr-defined]
+            FilteringChoices._value2member_map_.pop("frame", None)  # type: ignore[attr-defined]
+            try:
+                FilteringChoices._member_names_.remove("frame")  # type: ignore[attr-defined]
+            except ValueError:
+                pass
+
+        log.info("Frames patches removed.")
+
+    def _patch(self) -> None:
+        import ballsdex.core.image_generator.image_gen as image_gen_module
+        import bd_models.models as bd_models_module
+        from ballsdex.packages.countryballs.countryball import BallSpawnView
+        from ballsdex.core.utils.menus.formatter import CountryballFormatter
+        from settings.models import PromptMessage, settings
+        from bd_models.models import BallInstance
+
+        # ── BallInstance.save ──────────────────────────────────────────────────
+
+        original_ball_instance_save = BallInstance.save
+
+        def patched_ball_instance_save(self, *args, **kwargs):
+            if not self.pk and not self.extra_data:
+                try:
+                    key = date.today().strftime("%m-%d-%Y")
+                    entry = self.ball.capacity_logic.get(key)
+                    if isinstance(entry, dict):
+                        self.extra_data = entry
+                except Exception:
+                    pass
+            return original_ball_instance_save(self, *args, **kwargs)
+
+        self._originals["ball_instance_save"] = BallInstance.save
+        BallInstance.save = patched_ball_instance_save  # type: ignore[method-assign]
+
+        # ── BallInstance.objects.acreate ───────────────────────────────────────
+
+        original_acreate = BallInstance.objects.acreate
+
+        async def patched_acreate(**kwargs):
+            if "extra_data" not in kwargs:
+                ball = kwargs.get("ball")
+                if ball is not None:
+                    try:
+                        key = date.today().strftime("%m-%d-%Y")
+                        entry = ball.capacity_logic.get(key)
+                        if isinstance(entry, dict):
+                            kwargs["extra_data"] = entry
+                    except Exception:
+                        pass
+            return await original_acreate(**kwargs)
+
+        self._originals["ball_instance_acreate"] = BallInstance.objects.acreate
+        BallInstance.objects.acreate = patched_acreate  # type: ignore[assignment]
+
+        # ── BallSpawnView.spawn ────────────────────────────────────────────────
+
+        async def patched_spawn(view_self: BallSpawnView, channel: discord.TextChannel) -> bool:
+            frame = get_active_frame(view_self.model.capacity_logic)
+            spawn_path: str | None = None
+            if frame and frame.get("spawn"):
+                spawn_path = f"./media/{frame['spawn']}"
+                ext = frame["spawn"].rsplit(".", 1)[-1] if "." in frame["spawn"] else "png"
+            else:
+                ext = view_self.model.wild_card.name.split(".")[-1]
+
+            file_name = f"nt_{_random_name()}.{ext}"
+            try:
+                permissions = channel.permissions_for(channel.guild.me)
+                if permissions.attach_files and permissions.send_messages:
+                    spawn_message = settings.get_random_message(PromptMessage.PromptType.SPAWN).format(
+                        collectible=settings.collectible_name,
+                        ball=view_self.name,
+                        collectibles=settings.plural_collectible_name,
+                        emoji=view_self.bot.get_emoji(view_self.model.emoji_id),
+                    )
+                    file_path = spawn_path or view_self.model.wild_card.path
+                    view_self.message = await channel.send(
+                        spawn_message,
+                        view=view_self,
+                        file=discord.File(file_path, filename=file_name),
+                    )
+                    return True
+                else:
+                    log.warning("Missing permission to spawn ball in channel %s.", channel)
+            except discord.Forbidden:
+                log.warning("Missing permission to spawn ball in channel %s.", channel)
+            except discord.HTTPException:
+                log.error("Failed to spawn ball", exc_info=True)
+            return False
+
+        self._originals["spawn"] = BallSpawnView.spawn
+        BallSpawnView.spawn = patched_spawn  # type: ignore[method-assign]
+
+        # ── draw_card ──────────────────────────────────────────────────────────
+
+        self._originals["draw_card"] = image_gen_module.draw_card
+        original_draw_card = image_gen_module.draw_card
+        corners = image_gen_module.CORNERS
+        artwork_size = image_gen_module.artwork_size
+
+        def patched_draw_card(ball_instance):
+            image, kwargs = original_draw_card(ball_instance)
+            frame = ball_instance.extra_data if isinstance(ball_instance.extra_data, dict) else None
+            if frame and frame.get("card"):
+                try:
+                    artwork = Image.open("./media/" + frame["card"]).convert("RGBA")
+                    image.paste(ImageOps.fit(artwork, artwork_size), corners[0])  # type: ignore[arg-type]
+                    artwork.close()
+                except Exception:
+                    log.exception(
+                        "Failed to apply frame card art for %s", ball_instance.countryball.country
+                    )
+            return image, kwargs
+
+        image_gen_module.draw_card = patched_draw_card
+        bd_models_module.draw_card = patched_draw_card
+
+        # ── CountryballFormatter.format_page ───────────────────────────────────
+
+        async def patched_format_page(fmt_self: CountryballFormatter, page) -> None:
+            fmt_self.item.options = []
+            async for ball in page:
+                emoji = fmt_self.menu.bot.get_emoji(int(ball.countryball.emoji_id))
+                favorite = f"{settings.favorited_collectible_emoji} " if ball.favorite else ""
+                special = ball.specialcard.emoji if ball.specialcard else ""
+                frame_entry = ball.extra_data if isinstance(ball.extra_data, dict) else None
+                frame = "🖼️ " if isinstance(frame_entry, dict) and frame_entry.get("card") else ""
+                fmt_self.item.add_option(
+                    label=f"{favorite}{special}{frame}#{ball.pk:0X} {ball.countryball.country}",
+                    description=(
+                        f"ATK: {ball.attack}({ball.attack_bonus:+d}%) "
+                        f"• HP: {ball.health}({ball.health_bonus:+d}%) • "
+                        f"{ball.catch_date.strftime('%Y/%m/%d | %H:%M')}"
+                    ),
+                    emoji=emoji,
+                    value=f"{ball.pk}",
+                    default=ball.pk in fmt_self.defaulted,
+                )
+            fmt_self.min_values = max(fmt_self.min_values, len(page))
+            fmt_self.item.max_values = min(fmt_self.max_values, len(page))
+
+        self._originals["format_page"] = CountryballFormatter.format_page
+        CountryballFormatter.format_page = patched_format_page  # type: ignore[method-assign]
+
+        # ── FilteringChoices + filter_balls ───────────────────────────────────
+
+        import ballsdex.core.utils.enums as enums_module
+        import ballsdex.core.utils.sorting as sorting_module
+        from ballsdex.core.utils.enums import FilteringChoices
+
+        # Add the new enum member (only if not already present, e.g. reload safety)
+        if not hasattr(FilteringChoices, "frame"):
+            new_member = object.__new__(FilteringChoices)
+            new_member._name_ = "frame"
+            new_member._value_ = "frame"
+            FilteringChoices._value2member_map_["frame"] = new_member  # type: ignore[attr-defined]
+            FilteringChoices._member_map_["frame"] = new_member  # type: ignore[attr-defined]
+            FilteringChoices._member_names_.append("frame")  # type: ignore[attr-defined]
+
+        original_filter_balls = sorting_module.filter_balls
+
+        def patched_filter_balls(filter, queryset, guild_id=None):
+            if filter == FilteringChoices.frame: # type: ignore
+                today_key = date.today().strftime("%m-%d")
+                return queryset.filter(
+                    ball__capacity_logic__has_key=today_key
+                )
+            return original_filter_balls(filter, queryset, guild_id=guild_id)
+
+        self._originals["filter_balls"] = sorting_module.filter_balls
+        sorting_module.filter_balls = patched_filter_balls
+
+        # re-bind in the balls cog's module if already imported
+        try:
+            import ballsdex.packages.balls.cog as balls_cog_module
+            balls_cog_module.filter_balls = patched_filter_balls  # type: ignore[attr-defined]
+            self._originals["balls_cog_filter_balls"] = original_filter_balls
+        except Exception:
+            pass
+
+        log.info("Frames patches applied.")

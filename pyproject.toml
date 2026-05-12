@@ -1,0 +1,11 @@
+[project]
+name = "frames"
+version = "0.0.1"
+
+description = "Frames package for BallsDex — date-based ball art overrides"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "flare", email = "flare@ballsdex.com" },
+]
+readme = "README.md"
