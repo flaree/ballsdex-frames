@@ -9,3 +9,9 @@ authors = [
     { name = "flare", email = "flare@ballsdex.com" },
 ]
 readme = "README.md"
+
+[project.urls]
+Homepage = "https://github.com/flaree/ballsdex-frames"
+Documentation = "https://ballsdex-frames.readthedocs.io/en/latest/"
+Changelogs = "https://ballsdex-frames.readthedocs.io/en/latest/changelog.html"
+Funding = "https://www.patreon.com/flaree"
