@@ -10,6 +10,9 @@ authors = [
 ]
 readme = "README.md"
 
+[tool.setuptools.package-data]
+frames = ["templates/**/*"]
+
 [project.urls]
 Homepage = "https://github.com/flaree/ballsdex-frames"
 Documentation = "https://ballsdex-frames.readthedocs.io/en/latest/"
