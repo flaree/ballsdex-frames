@@ -131,6 +131,16 @@ class FramesCog(commands.Cog):
 
         async def patched_spawn(view_self: BallSpawnView, channel: discord.TextChannel) -> bool:
             frame = get_active_frame(view_self.model.capacity_logic)
+            if frame is not None:
+                chance = frame.get("chance", 100)
+                if not (isinstance(chance, int) and 1 <= chance <= 100 and random.randint(1, 100) <= chance):
+                    # Chance failed — clear frame from in-memory capacity_logic so that
+                    # patched_acreate / patched_ball_instance_save won't apply it on catch.
+                    today_key = date.today().strftime("%m-%d-%Y")
+                    temp = dict(view_self.model.capacity_logic)
+                    temp.pop(today_key, None)
+                    view_self.model.capacity_logic = temp
+                    frame = None
             spawn_path: str | None = None
             if frame and frame.get("spawn"):
                 spawn_path = f"./media/{frame['spawn']}"

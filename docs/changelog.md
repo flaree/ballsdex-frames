@@ -4,6 +4,17 @@ All notable changes to the Frames package are documented here.
 
 ---
 
+## 0.0.2 — 2026-05-14
+
+### Added
+
+- `chance` key (integer, 1–100) in each frame entry stored in `Ball.capacity_logic`. Defaults to `100` (always active) when omitted.
+- On spawn, the chance is evaluated with a 1–100 random roll; if the roll exceeds `chance` the frame is skipped for that spawn and the caught ball carries no frame art either.
+- **Admin**: `chance` field added to both the *Add Frame* and *Change Frame* forms with validation enforcing the 1–100 range.
+- **Admin**: *Chance* column added to the existing-frames table on the change view, displaying the stored value (or `100%` for legacy entries).
+
+---
+
 ## 0.0.1 — 2026-05-12
 
 Initial release.

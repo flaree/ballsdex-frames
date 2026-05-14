@@ -64,6 +64,13 @@ class FrameAddForm(forms.Form):
         widget=forms.Textarea(attrs={"rows": 3}),
         help_text="Text appended to the catch message during this frame window.",
     )
+    chance = forms.IntegerField(
+        min_value=1,
+        max_value=100,
+        initial=100,
+        required=False,
+        help_text="Probability (1–100) that this frame is applied on spawn. Defaults to 100 (always).",
+    )
 
     def clean(self) -> dict[str, Any]:
         cleaned = super().clean()
@@ -71,6 +78,8 @@ class FrameAddForm(forms.Form):
         date_to = cleaned.get("date_to")
         if date_from and date_to and date_to < date_from:
             self.add_error("date_to", "End date must be on or after the start date.")
+        if cleaned.get("chance") is None:
+            cleaned["chance"] = 100
         return cleaned
 
 
@@ -100,6 +109,13 @@ class FrameDateForm(forms.Form):
         widget=forms.Textarea(attrs={"rows": 3}),
         help_text="Text appended to the catch message during this frame window.",
     )
+    chance = forms.IntegerField(
+        min_value=1,
+        max_value=100,
+        initial=100,
+        required=False,
+        help_text="Probability (1–100) that this frame is applied on spawn. Defaults to 100 (always).",
+    )
 
     def clean(self) -> dict[str, Any]:
         cleaned = super().clean()
@@ -107,6 +123,8 @@ class FrameDateForm(forms.Form):
         date_to = cleaned.get("date_to")
         if date_from and date_to and date_to < date_from:
             self.add_error("date_to", "End date must be on or after the start date.")
+        if cleaned.get("chance") is None:
+            cleaned["chance"] = 100
         return cleaned
 
 
@@ -122,6 +140,7 @@ def _apply_frames(
     card_ext: str | None,
     credits_str: str,
     catch_str: str,
+    chance: int = 100,
 ) -> None:
     """
     Write MM-DD-YYYY frame entries into ball.capacity_logic and persist art files.
@@ -137,6 +156,7 @@ def _apply_frames(
         entry: dict[str, Any] = {
             "credits": credits_str,
             "catch": catch_str,
+            "chance": chance,
         }
         if spawn_bytes is not None and spawn_ext is not None:
             entry["spawn"] = _save_art(spawn_bytes, f"frame_{safe_name}_{key}_spawn.{spawn_ext}")
@@ -228,6 +248,7 @@ class FrameAdmin(admin.ModelAdmin):
                     card_bytes, card_ext,
                     form.cleaned_data["credits"],
                     form.cleaned_data["catch_phrase"],
+                    form.cleaned_data.get("chance", 100),
                 )
                 ball.save(update_fields=["capacity_logic"])
 
@@ -287,6 +308,7 @@ class FrameAdmin(admin.ModelAdmin):
                     card_bytes, card_ext,
                     form.cleaned_data["credits"],
                     form.cleaned_data["catch_phrase"],
+                    form.cleaned_data.get("chance", 100),
                 )
                 ball.save(update_fields=["capacity_logic"])
 
