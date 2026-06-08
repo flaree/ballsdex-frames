@@ -186,7 +186,7 @@ class FramesCog(commands.Cog):
             message = original_get_catch_message(view_self, ball, new_ball, mention)
             frame = ball.extra_data if isinstance(ball.extra_data, dict) else None
             if frame and frame.get("catch"):
-                message = f"{frame['catch']}\n{message}"
+                message = f"{message}\n{frame['catch']}"
             return message
 
         self._originals["get_catch_message"] = BallSpawnView.get_catch_message
