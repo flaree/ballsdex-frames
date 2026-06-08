@@ -158,6 +158,8 @@ class FramesCog(commands.Cog):
                         collectibles=settings.plural_collectible_name,
                         emoji=view_self.bot.get_emoji(view_self.model.emoji_id),
                     )
+                    if frame and frame.get("catch"):
+                        spawn_message = f"{frame['catch']}\n{spawn_message}"
                     file_path = spawn_path or view_self.model.wild_card.path
                     view_self.message = await channel.send(
                         spawn_message,
