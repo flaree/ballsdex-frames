@@ -52,6 +52,8 @@ class FramesCog(commands.Cog):
 
         if "spawn" in self._originals:
             BallSpawnView.spawn = self._originals["spawn"]  # type: ignore[method-assign]
+        if "get_catch_message" in self._originals:
+            BallSpawnView.get_catch_message = self._originals["get_catch_message"]  # type: ignore[method-assign]
         if "draw_card" in self._originals:
             image_gen_module.draw_card = self._originals["draw_card"]
             bd_models_module.draw_card = self._originals["draw_card"]
@@ -158,8 +160,6 @@ class FramesCog(commands.Cog):
                         collectibles=settings.plural_collectible_name,
                         emoji=view_self.bot.get_emoji(view_self.model.emoji_id),
                     )
-                    if frame and frame.get("catch"):
-                        spawn_message = f"{frame['catch']}\n{spawn_message}"
                     file_path = spawn_path or view_self.model.wild_card.path
                     view_self.message = await channel.send(
                         spawn_message,
@@ -177,6 +177,20 @@ class FramesCog(commands.Cog):
 
         self._originals["spawn"] = BallSpawnView.spawn
         BallSpawnView.spawn = patched_spawn  # type: ignore[method-assign]
+
+        # ── BallSpawnView.get_catch_message ────────────────────────────────────
+
+        original_get_catch_message = BallSpawnView.get_catch_message
+
+        def patched_get_catch_message(view_self: BallSpawnView, ball, new_ball, mention):
+            message = original_get_catch_message(view_self, ball, new_ball, mention)
+            frame = ball.extra_data if isinstance(ball.extra_data, dict) else None
+            if frame and frame.get("catch"):
+                message = f"{frame['catch']}\n{message}"
+            return message
+
+        self._originals["get_catch_message"] = BallSpawnView.get_catch_message
+        BallSpawnView.get_catch_message = patched_get_catch_message  # type: ignore[method-assign]
 
         # ── draw_card ──────────────────────────────────────────────────────────
 
