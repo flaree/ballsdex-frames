@@ -1,6 +1,6 @@
 [project]
 name = "frames"
-version = "0.0.5"
+version = "0.0.6"
 
 description = "Frames package for BallsDex — date-based ball art overrides"
 license = "MIT"

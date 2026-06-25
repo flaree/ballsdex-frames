@@ -80,6 +80,10 @@ class FramesCog(commands.Cog):
                 FilteringChoices._member_names_.remove("frame")  # type: ignore[attr-defined]
             except ValueError:
                 pass
+            try:
+                type.__delattr__(FilteringChoices, "frame")
+            except AttributeError:
+                pass
 
         log.info("Frames patches removed.")
 
@@ -257,15 +261,16 @@ class FramesCog(commands.Cog):
             FilteringChoices._value2member_map_["frame"] = new_member  # type: ignore[attr-defined]
             FilteringChoices._member_map_["frame"] = new_member  # type: ignore[attr-defined]
             FilteringChoices._member_names_.append("frame")  # type: ignore[attr-defined]
+            # EnumType blocks plain setattr for member names ("cannot reassign member"),
+            # and newer Python no longer falls back to _member_map_ in __getattr__, so the
+            # class attribute has to be set directly via the metaclass's type.__setattr__.
+            type.__setattr__(FilteringChoices, "frame", new_member)
 
         original_filter_balls = sorting_module.filter_balls
 
         def patched_filter_balls(filter, queryset, guild_id=None):
             if filter == FilteringChoices.frame: # type: ignore
-                today_key = date.today().strftime("%m-%d")
-                return queryset.filter(
-                    ball__capacity_logic__has_key=today_key
-                )
+                return queryset.filter(extra_data__has_key="card")
             return original_filter_balls(filter, queryset, guild_id=guild_id)
 
         self._originals["filter_balls"] = sorting_module.filter_balls
