@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 import discord
 from discord.ext import commands
-from PIL import Image, ImageOps
+from PIL import Image, ImageDraw, ImageOps
 
 if TYPE_CHECKING:
     from ballsdex.core.bot import BallsDexBot
@@ -202,6 +202,10 @@ class FramesCog(commands.Cog):
         original_draw_card = image_gen_module.draw_card
         corners = image_gen_module.CORNERS
         artwork_size = image_gen_module.artwork_size
+        credits_font = image_gen_module.credits_font
+        get_credit_color = image_gen_module.get_credit_color
+        credits_color_cache = image_gen_module.credits_color_cache
+        credits_region = (0, 1840, image_gen_module.WIDTH, image_gen_module.HEIGHT)
 
         def patched_draw_card(ball_instance):
             image, kwargs = original_draw_card(ball_instance)
@@ -214,6 +218,43 @@ class FramesCog(commands.Cog):
                 except Exception:
                     log.exception(
                         "Failed to apply frame card art for %s", ball_instance.countryball.country
+                    )
+            if frame and frame.get("credits"):
+                try:
+                    ball = ball_instance.countryball
+                    special_credits = ""
+                    if ball_instance.specialcard and ball_instance.specialcard.credits:
+                        special_credits = f" • Special Author: {ball_instance.specialcard.credits}"
+
+                    # Wipe the original credits text by repainting the region with the
+                    # untouched card background, then redraw it with the artwork author
+                    # line swapped for the frame's credits.
+                    background_path = ball_instance.special_card or ball.cached_regime.background
+                    background = Image.open(background_path).convert("RGBA")
+                    background_region = background.crop(credits_region)
+                    image.paste(background_region, credits_region[:2])
+                    background.close()
+
+                    card_name = getattr(ball_instance.specialcard, "name", None) or ball.cached_regime.name
+                    if card_name in credits_color_cache:
+                        credits_color = credits_color_cache[card_name]
+                    else:
+                        credits_color = get_credit_color(
+                            image, (0, int(image.height * 0.8), image.width, image.height)
+                        )
+                        credits_color_cache[card_name] = credits_color
+
+                    ImageDraw.Draw(image).text(
+                        (30, 1870),
+                        f"Created by El Laggron{special_credits}\nArtwork author: {frame['credits']}",
+                        font=credits_font,
+                        fill=credits_color,
+                        stroke_width=0,
+                        stroke_fill=(255, 255, 255, 255),
+                    )
+                except Exception:
+                    log.exception(
+                        "Failed to apply frame credits for %s", ball_instance.countryball.country
                     )
             return image, kwargs
 
