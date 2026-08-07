@@ -166,8 +166,8 @@ class FramesCog(commands.Cog):
                         emoji=view_self.bot.get_emoji(view_self.model.emoji_id),
                     )
                     file_path = spawn_path or view_self.model.wild_card.path
+                    await view_self.build(spawn_message, file_name, channel.guild.id)
                     view_self.message = await channel.send(
-                        spawn_message,
                         view=view_self,
                         file=discord.File(file_path, filename=file_name),
                     )
